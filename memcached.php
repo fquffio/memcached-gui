@@ -1,89 +1,93 @@
 <?php
-$memcache = new Memcache();
 
-$memcache->addServer('127.0.0.1'); // edit here if your memcached server differs from localhost
+$config = 'config.ini';
+$mem = new Memcached();
 
-$list = array();
-$allSlabs = $memcache->getExtendedStats('slabs');
-$items = $memcache->getExtendedStats('items');
-foreach($allSlabs as $server => $slabs) {
-    foreach($slabs AS $slabId => $slabMeta) {
-        $cdump = $memcache->getExtendedStats('cachedump',(int)$slabId);
-        foreach($cdump AS $server => $entries) {
-            if($entries) {
-                foreach($entries AS $eName => $eData) {
-                    $list[$eName] = array(
-                        'key' => $eName,
-                        'value' => $memcache->get($eName)
-                    );
-                }
-            }
+if (!file_exists($config) || !is_readable($config) || !($config = parse_ini_file($config, true))) {
+    trigger_error('Missing configuration file.', E_USER_ERROR);
+}
+$mem->addServers(array_values($config));
+
+$_method = isset($_POST['_method']) ? $_POST['_method'] : $_SERVER['REQUEST_METHOD'];
+switch ($_method) {
+    case 'DELETE':
+        if (isset($_POST['key'])) {
+            $mem->delete($_POST['key']);
+        } else {
+            $mem->flush();
         }
-    }
-}
-ksort($list);
-
-if (isset($_GET['del'])) {
-    $memcache->delete($_GET['del']);
-
-    header("Location: " . $_SERVER['PHP_SELF']);
+        break;
+    case 'POST':
+        if (!empty($_POST['key'])) {
+            $mem->set($_POST['key'], @$_POST['value']);
+        }
+        break;
 }
 
-if (isset($_GET['flush'])) {
-    $memcache->flush();
-
-    header("Location: " . $_SERVER['PHP_SELF']);
-}
-
-if (isset($_GET['set'])) {
-    $memcache->set($_GET['set'], $_GET['value']);
-
-    header("Location: " . $_SERVER['PHP_SELF']);
-}
+$items = $mem->getMulti($mem->getAllKeys());
+ksort($items);
 ?>
+<!DOCTYPE html>
+<html lang="en">
 <head>
-    <link href="//netdna.bootstrapcdn.com/twitter-bootstrap/2.2.1/css/bootstrap-combined.min.css" rel="stylesheet">
-    <script type="text/javascript" src="http://cachedcommons.org/cache/jquery/1.4.2/javascripts/jquery.js"></script>
-    <script type="text/javascript" src="http://cachedcommons.org/cache/jquery-table-sorter/2.0.3/javascripts/jquery-table-sorter-min.js"></script>
+    <title>Basic Memcached PHP interface</title>
 
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
 </head>
-<body>
 
+<body>
 <div class="container" style="width: 940px;">
-    <h3>memcached</h3>
-    <table cellpadding="0" cellspacing="0" class="tablesorter table table-bordered table-hover table-striped">
+    <h1>
+        Basic Memcached PHP interface
+        <button class="btn btl-lg btn-default" onclick="window.location = window.location.href">Refresh</button>
+    </h1>
+
+    <table class="table table-bordered table-hover table-striped">
         <thead>
-        <tr>
-            <th>key</th>
-            <th>value</th>
-        </tr>
+            <tr>
+                <th>Key</th>
+                <th>Value</th>
+                <th>Actions</th>
+            </tr>
         </thead>
         <tbody>
-        <?php foreach($list as $i): ?>
-            <tr>
-                <td><?php echo $i['key'] ?></td>
-                <td><?php echo $i['value'] ?></td>
-                <td><a href="memcached.php?del=<?php echo $i['key'] ?>">X</a>
+        <?php foreach ($items as $key => $value): ?>
+            <tr<?php if ($_method == 'POST' && @$_POST['key'] == $key): ?> class="success"<?php endif; ?>>
+                <td><?= $key ?></td>
+                <td><?= $value ?></td>
+                <td>
+                    <form class="form-inline" method="POST" action="">
+                        <input type="hidden" name="key" value="<?= $key ?>" />
+                        <input type="hidden" name="_method" value="DELETE" />
+                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                    </form>
+                </td>
             </tr>
         <?php endforeach; ?>
         </tbody>
     </table>
-    <center>
-        <a href="memcached.php?flush=1">FLUSH</a> <br />
-        <br />
-        <a href="#" onclick="memcachedSet()">SET</a>
-    </center>
 
-    <script type="text/javascript">
-        $(document).ready(function(){
-            $("table").tablesorter();
-        });
+    <div class="row">
+        <div class="col-md-8">
+            <form class="form-inline" method="POST" action="">
+                <div class="form-group">
+                    <label for="key">Key</label>
+                    <input type="text" class="form-control" id="key" name="key" placeholder="key" required />
+                </div>
+                <div class="form-group">
+                    <label for="value">Value</label>
+                    <input type="text" class="form-control" id="value" name="value" placeholder="value" required />
+                </div>
+                <button type="submit" class="btn btn-primary">Set key</button>
+            </form>
+        </div>
+        <div class="col-md-4">
+            <form class="form-inline" method="POST" action="">
+                <input type="hidden" name="_method" value="DELETE" />
+                <button type="submit" class="btn btn-danger btn-block">Flush</button>
+            </form>
+        </div>
+    </div>
 
-        function memcachedSet() {
-            key = prompt("Key: ");
-            value = prompt("Value: ");
-
-            window.location.href = "memcached.php?set="+ key +"&value=" + value;
-        }
-    </script>
 </body>
+</html>
