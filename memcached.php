@@ -19,6 +19,23 @@ $mem->addServers(array_values($config));
 
 $_method = isset($_POST['_method']) ? $_POST['_method'] : $_SERVER['REQUEST_METHOD'];
 switch ($_method) {
+    case 'GET':
+        if (!empty($_GET['key'])) {
+            header('Content-Type: text/plain');
+            $value = $mem->get($_GET['key']);
+            if ($mem->getResultCode() == Memcached::RES_NOTFOUND) {
+                header($_SERVER['SERVER_PROTOCOL'] . ' 404 Not Found');
+                echo 'NOT FOUND!';
+            } elseif (is_string($value) || is_numeric($value)) {
+                echo $value;
+            } elseif (is_null($value) || is_bool($value)) {
+                var_dump($value);
+            } else {
+                print_r($value);
+            }
+            exit;
+        }
+        break;
     case 'DELETE':
         if (isset($_POST['key'])) {
             $mem->delete($_POST['key']);
@@ -52,7 +69,8 @@ $keys = array_slice($keys, ($page - 1) * ITEMS_PER_PAGE, ITEMS_PER_PAGE);
 $items = $mem->getMulti($keys);
 
 $paginator = array();
-for ($p = max(1, $page - 2); $p <= min($pages, $page + 2); $p++) {
+$diff = 2 + max(0, 3 - $page, $page - $pages + 2);
+for ($p = max(1, $page - $diff); $p <= min($pages, $page + $diff); $p++) {
     array_push($paginator, $p);
 }
 
@@ -63,6 +81,18 @@ for ($p = max(1, $page - 2); $p <= min($pages, $page + 2); $p++) {
     <title>Basic Memcached PHP interface</title>
 
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
+    <script type="text/javascript">
+        var viewRaw = function(key) {
+            var w = 630,
+                h = 440,
+                percent = .33;
+            if (window.screen) {
+                w = window.screen.availWidth * percent;
+                h = window.screen.availHeight * percent;
+            }
+            window.open('<?= buildUrl() ?>key=' + key, '_blank', 'width=' + w + ', height=' + h);
+        };
+    </script>
 </head>
 
 <body>
@@ -76,7 +106,7 @@ for ($p = max(1, $page - 2); $p <= min($pages, $page + 2); $p++) {
         <div class="col-lg-8">
             <form method="GET" action="<?= buildUrl() ?>">
                 <div class="input-group">
-                    <input type="search" name="q" class="form-control" placeholder="Search..." value="<?= @$_GET['q'] ?>" />
+                    <input type="search" name="q" class="form-control" placeholder="Search&hellip;" value="<?= @$_GET['q'] ?>" />
                     <span class="input-group-btn">
                         <button type="submit" class="btn btn-default" aria-label="Search">
                             <span class="glyphicon glyphicon-search" aria-hidden="true"></span>
@@ -105,7 +135,7 @@ for ($p = max(1, $page - 2); $p <= min($pages, $page + 2); $p++) {
                 <td>
                     <?php
                     if (is_string($value) || is_numeric($value)):
-                        echo $value;
+                        echo (strlen((string) $value) >= 512) ? substr($value, 0, 512) . '&hellip;' : $value;
                     elseif (is_null($value) || is_bool($value)):
                         echo '<b>';
                         var_dump($value);
@@ -117,6 +147,8 @@ for ($p = max(1, $page - 2); $p <= min($pages, $page + 2); $p++) {
                 </td>
                 <td>
                     <form class="form-inline" method="POST" action="<?= buildUrl('q', 'page') ?>">
+                        <button type="button" class="btn btn-default btn-sm" onclick="viewRaw('<?= $key ?>')">View Raw</button>
+
                         <input type="hidden" name="key" value="<?= $key ?>" />
                         <input type="hidden" name="_method" value="DELETE" />
                         <button type="submit" class="btn btn-danger btn-sm">Delete</button>
@@ -165,5 +197,17 @@ for ($p = max(1, $page - 2); $p <= min($pages, $page + 2); $p++) {
         </div>
     </div>
 
+    <script type="text/javascript">
+        (function() {
+            var elements = document.querySelectorAll('.btn-danger');
+            for (var i = 0; i < elements.length; i++) {
+                elements[i].addEventListener('click', function(evt) {
+                    if (!window.confirm('Are you sure you wish to proceed?')) {
+                        evt.preventDefault();
+                    }
+                });
+            }
+        })();
+    </script>
 </body>
 </html>
