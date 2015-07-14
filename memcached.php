@@ -159,6 +159,7 @@ for ($p = max(1, $page - $diff); $p <= min($pages, $page + $diff); $p++) {
         </tbody>
     </table>
 
+    <?php if ($pages > 1): ?>
     <nav>
         <ul class="pagination">
             <li<?php if ($page == 1): ?> class="disabled"<?php endif; ?>>
@@ -174,6 +175,7 @@ for ($p = max(1, $page - $diff); $p <= min($pages, $page + $diff); $p++) {
             </li>
         </ul>
     </nav>
+    <?php endif; ?>
 
     <div class="row">
         <div class="col-md-8">
