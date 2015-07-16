@@ -9,6 +9,12 @@ function buildUrl() {
     return htmlspecialchars($url . '?' . (!empty($args) ? http_build_query($args) : ''), ENT_QUOTES, 'UTF-8');
 }
 
+function toHumanReadable($size) {
+    static $sizes = 'BKMGTP';
+    $factor = floor((strlen($size) - 1) / 3);
+    return sprintf('%.2f', $size / pow(1024, $factor)) . @$sizes[$factor];
+}
+
 $config = 'config.ini';
 $mem = new Memcached();
 
@@ -74,6 +80,12 @@ for ($p = max(1, $page - $diff); $p <= min($pages, $page + $diff); $p++) {
     array_push($paginator, $p);
 }
 
+$stats = $mem->getStats();
+$overview = array();
+array_walk_recursive($stats, function($item, $key) use (&$overview) {
+    $overview[$key] = isset($overview[$key]) ?  $item + $overview[$key] : $item;
+});
+
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -83,132 +95,202 @@ for ($p = max(1, $page - $diff); $p <= min($pages, $page + $diff); $p++) {
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
     <script type="text/javascript">
         var viewRaw = function(key) {
-            var w = 630,
-                h = 440,
-                percent = .33;
-            if (window.screen) {
-                w = window.screen.availWidth * percent;
-                h = window.screen.availHeight * percent;
-            }
-            window.open('<?= buildUrl() ?>key=' + key, '_blank', 'width=' + w + ', height=' + h);
-        };
+                var w = 630,
+                    h = 440,
+                    percent = .33;
+                if (window.screen) {
+                    w = window.screen.availWidth * percent;
+                    h = window.screen.availHeight * percent;
+                }
+                window.open('<?= buildUrl() ?>key=' + key, '_blank', 'width=' + w + ', height=' + h);
+            },
+            deletionConfirm = function(evt) {
+                if (!window.confirm('Are you sure you wish to proceed?')) {
+                    evt.preventDefault();
+                }
+            },
+            pageRefresh = function() {
+                window.location = window.location.href;
+            };
     </script>
 </head>
 
 <body>
 <div class="container" style="width: 940px;">
-    <h1>
-        Basic Memcached PHP interface
-        <small><span class="label label-primary"><?= $count ?></span></small>
-    </h1>
+    <h1>Basic Memcached PHP interface</h1>
 
-    <div class="row">
-        <div class="col-lg-8">
-            <form method="GET" action="<?= buildUrl() ?>">
-                <div class="input-group">
-                    <input type="search" name="q" class="form-control" placeholder="Search&hellip;" value="<?= @$_GET['q'] ?>" />
-                    <span class="input-group-btn">
-                        <button type="submit" class="btn btn-default" aria-label="Search">
-                            <span class="glyphicon glyphicon-search" aria-hidden="true"></span>
-                        </button>
-                    </span>
-                </div>
-            </form>
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <h2 class="panel-title">Stored keys <span class="label label-primary"><?= $count ?></span></h2>
         </div>
-        <div class="col-lg-4">
-            <button class="btn btl-lg btn-default btn-block" onclick="window.location = window.location.href">Refresh</button>
-        </div>
-    </div>
 
-    <table class="table table-bordered table-hover table-striped">
-        <thead>
-            <tr>
-                <th>Key</th>
-                <th>Value</th>
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-        <?php foreach ($items as $key => $value): ?>
-            <tr<?php if ($_method == 'POST' && @$_POST['key'] == $key): ?> class="success"<?php endif; ?>>
-                <td><?= $key ?></td>
-                <td>
-                    <?php
-                    if (is_string($value) || is_numeric($value)):
-                        echo (strlen((string) $value) >= 512) ? substr($value, 0, 512) . '&hellip;' : $value;
-                    elseif (is_null($value) || is_bool($value)):
-                        echo '<b>';
-                        var_dump($value);
-                        echo '</b>';
-                    else:
-                        echo '<i>' . (is_array($value) ? '(Array)' : '(Object)') . '</i>';
-                    endif;
-                    ?>
-                </td>
-                <td>
-                    <form class="form-inline" method="POST" action="<?= buildUrl('q', 'page') ?>">
-                        <button type="button" class="btn btn-default btn-sm" onclick="viewRaw('<?= $key ?>')">View Raw</button>
-
-                        <input type="hidden" name="key" value="<?= $key ?>" />
-                        <input type="hidden" name="_method" value="DELETE" />
-                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+        <div class="panel-body">
+            <div class="row">
+                <div class="col-lg-8">
+                    <form method="GET" action="<?= buildUrl() ?>">
+                        <div class="input-group">
+                            <input type="search" name="q" class="form-control" placeholder="Search&hellip;" value="<?= @$_GET['q'] ?>" />
+                            <span class="input-group-btn">
+                                <button type="submit" class="btn btn-default" aria-label="Search">
+                                    <span class="glyphicon glyphicon-search" aria-hidden="true"></span>
+                                </button>
+                            </span>
+                        </div>
                     </form>
-                </td>
-            </tr>
-        <?php endforeach; ?>
-        </tbody>
-    </table>
-
-    <?php if ($pages > 1): ?>
-    <nav>
-        <ul class="pagination">
-            <li<?php if ($page == 1): ?> class="disabled"<?php endif; ?>>
-                <a href="<?= buildUrl('q') ?>&amp;page=1" aria-label="First"><span aria-hidden="true">&laquo;</span></a>
-            </li>
-            <?php foreach ($paginator as $p): ?>
-            <li<?php if ($p == $page): ?> class="active"<?php endif; ?>>
-                <a href="<?= buildUrl('q') ?>&amp;page=<?= $p ?>"><?= $p ?></a>
-            </li>
-            <?php endforeach; ?>
-            <li<?php if ($page == $pages): ?> class="disabled"<?php endif; ?>>
-                <a href="<?= buildUrl('q') ?>&amp;page=<?= $pages ?>" aria-label="Last"><span aria-hidden="true">&raquo;</span></a>
-            </li>
-        </ul>
-    </nav>
-    <?php endif; ?>
-
-    <div class="row">
-        <div class="col-md-8">
-            <form class="form-inline" method="POST" action="<?= buildUrl('q', 'page') ?>">
-                <div class="form-group">
-                    <label for="key">Key</label>
-                    <input type="text" class="form-control" id="key" name="key" placeholder="key" required />
                 </div>
-                <div class="form-group">
-                    <label for="value">Value</label>
-                    <input type="text" class="form-control" id="value" name="value" placeholder="value" required />
+                <div class="col-md-4">
+                    <form class="form-inline" method="POST" action="<?= buildUrl() ?>">
+                        <input type="hidden" name="_method" value="DELETE" />
+                        <div class="btn-group btn-group-justified" role="group">
+                            <div class="btn-group" role="group"><button type="button" class="btn btl-lg btn-default" onclick="pageRefresh()">Refresh</button></div>
+                            <div class="btn-group" role="group"><button type="submit" class="btn btn-danger">Flush</button></div>
+                        </div>
+                    </form>
                 </div>
-                <button type="submit" class="btn btn-primary">Set key</button>
-            </form>
+            </div>
         </div>
-        <div class="col-md-4">
-            <form class="form-inline" method="POST" action="<?= buildUrl() ?>">
-                <input type="hidden" name="_method" value="DELETE" />
-                <button type="submit" class="btn btn-danger btn-block">Flush</button>
-            </form>
+
+        <table class="table table-bordered table-hover table-striped">
+            <thead>
+                <tr>
+                    <th class="col-md-5">Key</th>
+                    <th class="col-md-5">Value</th>
+                    <th class="col-md-2">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+            <?php foreach ($items as $key => $value): ?>
+                <tr<?php if ($_method == 'POST' && @$_POST['key'] == $key): ?> class="success"<?php endif; ?>>
+                    <td><?= $key ?></td>
+                    <td>
+                        <?php
+                        if (is_string($value) || is_numeric($value)):
+                            echo (strlen((string) $value) >= 512) ? substr($value, 0, 512) . '&hellip;' : $value;
+                        elseif (is_null($value) || is_bool($value)):
+                            echo '<b>';
+                            var_dump($value);
+                            echo '</b>';
+                        else:
+                            echo '<i>' . (is_array($value) ? '(Array)' : '(Object)') . '</i>';
+                        endif;
+                        ?>
+                    </td>
+                    <td>
+                        <form class="form-inline" method="POST" action="<?= buildUrl('q', 'page') ?>">
+                            <input type="hidden" name="key" value="<?= $key ?>" />
+                            <input type="hidden" name="_method" value="DELETE" />
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-default btn-sm" onclick="viewRaw('<?= $key ?>')">View Raw</button>
+                                <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                            </div>
+                        </form>
+                    </td>
+                </tr>
+            <?php endforeach; ?>
+            </tbody>
+        </table>
+
+        <div class="panel-footer">
+
+            <div class="row">
+                <div class="col-md-4">
+                    <?php if ($pages > 1): ?>
+                    <nav>
+                        <ul class="pagination">
+                            <li<?php if ($page == 1): ?> class="disabled"<?php endif; ?>>
+                                <a href="<?= buildUrl('q') ?>&amp;page=1" aria-label="First"><span aria-hidden="true">&laquo;</span></a>
+                            </li>
+                            <?php foreach ($paginator as $p): ?>
+                            <li<?php if ($p == $page): ?> class="active"<?php endif; ?>>
+                                <a href="<?= buildUrl('q') ?>&amp;page=<?= $p ?>"><?= $p ?></a>
+                            </li>
+                            <?php endforeach; ?>
+                            <li<?php if ($page == $pages): ?> class="disabled"<?php endif; ?>>
+                                <a href="<?= buildUrl('q') ?>&amp;page=<?= $pages ?>" aria-label="Last"><span aria-hidden="true">&raquo;</span></a>
+                            </li>
+                        </ul>
+                    </nav>
+                    <?php endif; ?>
+                </div>
+                <div class="col-md-8">
+                    <form class="form-inline" method="POST" action="<?= buildUrl('q', 'page') ?>">
+                        <div class="form-group">
+                            <label for="key">Key</label>
+                            <input type="text" class="form-control" id="key" name="key" placeholder="key" required />
+                        </div>
+                        <div class="form-group">
+                            <label for="value">Value</label>
+                            <input type="text" class="form-control" id="value" name="value" placeholder="value" required />
+                        </div>
+                        <button type="submit" class="btn btn-primary">Set</button>
+                    </form>
+                </div>
+            </div>
         </div>
     </div>
 
+    <div class="panel panel-info">
+        <div class="panel-heading">
+            <h2 class="panel-title">Server statistics</h2>
+        </div>
+        <table class="table table-bordered table-hover table-striped">
+            <thead>
+                <tr>
+                    <th class="col-md-4">Server</th>
+                    <th class="col-md-8">Usage</th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($stats as $server => $data): ?>
+                <?php $data['bytes_ratio'] = $data['bytes'] / $data['limit_maxbytes']; $perc = sprintf('%01.1f%%', 100 * $data['bytes_ratio']); ?>
+                <tr>
+                    <td><?= $server ?></td>
+                    <td>
+                        <div class="progress">
+                            <div
+                                class="progress-bar progress-bar-<?= ($data['bytes_ratio'] > .9) ? 'danger' : ($data['bytes_ratio'] > .75 ? 'warning' : 'success') ?>"
+                                role="progressbar" aria-valuenow="<?= $data['bytes'] ?>" aria-valuemin="0" aria-valuemax="<?= $data['limit_maxbytes'] ?>" style="min-width: 2em; width: <?= $perc ?>"
+                                data-toggle="tooltip" data-placement="top" title="<?= toHumanReadable($data['bytes']) . ' / ' . toHumanReadable($data['limit_maxbytes']) ?>"
+                            >
+                                <?= $perc ?>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+                <?php endforeach; ?>
+            </tbody>
+            <?php if (count($stats) > 1): ?>
+            <tfoot>
+                <?php $overview['bytes_ratio'] = $overview['bytes'] / $overview['limit_maxbytes']; $perc = sprintf('%01.1f%%', 100 * $overview['bytes_ratio']); ?>
+                <tr>
+                    <td>Overall</td>
+                    <td>
+                        <div class="progress">
+                            <div
+                                class="progress-bar progress-bar-<?= ($overview['bytes_ratio'] > .9) ? 'danger' : ($overview['bytes_ratio'] > .75 ? 'warning' : 'success') ?>"
+                                role="progressbar" aria-valuenow="<?= $overview['bytes'] ?>" aria-valuemin="0" aria-valuemax="<?= $overview['limit_maxbytes'] ?>" style="min-width: 2em; width: <?= $perc ?>"
+                                data-toggle="tooltip" data-placement="top" title="<?= toHumanReadable($overview['bytes']) . ' / ' . toHumanReadable($overview['limit_maxbytes']) ?>"
+                            >
+                                <?= $perc ?>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </tfoot>
+            <?php endif; ?>
+        </table>
+    </div>
+
+    <script type="text/javascript" src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
+    <script type="text/javascript" src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/js/bootstrap.min.js"></script>
     <script type="text/javascript">
         (function() {
             var elements = document.querySelectorAll('.btn-danger');
             for (var i = 0; i < elements.length; i++) {
-                elements[i].addEventListener('click', function(evt) {
-                    if (!window.confirm('Are you sure you wish to proceed?')) {
-                        evt.preventDefault();
-                    }
-                });
+                elements[i].addEventListener('click', deletionConfirm);
             }
+
+            $('[data-toggle="tooltip"]').tooltip();
         })();
     </script>
 </body>
