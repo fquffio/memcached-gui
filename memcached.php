@@ -1,7 +1,15 @@
 <?php
 
+/**
+ * Items to show on each page.
+ */
 define('ITEMS_PER_PAGE', 25);
 
+/**
+ * Build a URL. You can pass multiple parameters to this function to preserve GET keys/values.
+ *
+ * @return string
+ */
 function buildUrl() {
     $preservedArgs = func_get_args();
     $url = $_SERVER['PHP_SELF'];
@@ -9,10 +17,53 @@ function buildUrl() {
     return htmlspecialchars($url . '?' . (!empty($args) ? http_build_query($args) : ''), ENT_QUOTES, 'UTF-8');
 }
 
+/**
+ * Transforms a dimension in bytes to a human readable string.
+ *
+ * @param int $size
+ * @return string
+ */
 function toHumanReadable($size) {
     static $sizes = 'BKMGTP';
     $factor = floor((strlen($size) - 1) / 3);
     return sprintf('%.2f', $size / pow(1024, $factor)) . @$sizes[$factor];
+}
+
+/**
+ * Returns an array in a printable table.
+ *
+ * @param array $data
+ * @return string
+ */
+function toTextTable(array $data) {
+    $maxLen = function($carry, $item) {
+        return max($carry, strlen($item));
+    };
+    $columns = array();
+    $maxLenghts = array();
+    foreach ($data as $id => $row) {
+        $columns = array_merge($columns, array_keys($row));
+        $maxLenghts[$id] = array_reduce($row, $maxLen, strlen($id));
+    }
+    $columns = array_unique($columns);
+    $maxCol = array_reduce($columns, $maxLen, 0);
+
+    $separator = '+' . str_repeat('-', $maxCol + 2) . '+';
+    $header = '|' . str_repeat(' ', $maxCol + 2) . '|';
+    foreach (array_keys($data) as $id) {
+        $separator .= str_repeat('-', $maxLenghts[$id] + 2) . '+';
+        $header .= ' ' . str_pad($id, $maxLenghts[$id], ' ', STR_PAD_BOTH) . ' |';
+    }
+
+    $res = $separator . PHP_EOL . $header . PHP_EOL . $separator . PHP_EOL;
+    foreach ($columns as $col) {
+        $res .= '| ' . str_pad(strtoupper($col), $maxCol, ' ', STR_PAD_LEFT) . ' |';
+        foreach ($data as $id => $row) {
+            $res .= ' ' . str_pad(@$row[$col], $maxLenghts[$id]) . ' |';
+        }
+        $res .= PHP_EOL;
+    }
+    return $res . $separator;
 }
 
 $config = 'config.ini';
@@ -26,6 +77,11 @@ $mem->addServers(array_values($config));
 $_method = isset($_POST['_method']) ? $_POST['_method'] : $_SERVER['REQUEST_METHOD'];
 switch ($_method) {
     case 'GET':
+        if (isset($_GET['stats'])) {
+            header('Content-Type: text/plain');
+            echo toTextTable($mem->getStats());
+            exit;
+        }
         if (!empty($_GET['key'])) {
             header('Content-Type: text/plain');
             $value = $mem->get($_GET['key']);
@@ -94,7 +150,7 @@ array_walk_recursive($stats, function($item, $key) use (&$overview) {
 
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.5/css/bootstrap.min.css">
     <script type="text/javascript">
-        var viewRaw = function(key) {
+        var openPopup = function(url) {
                 var w = 630,
                     h = 440,
                     percent = .33;
@@ -102,7 +158,7 @@ array_walk_recursive($stats, function($item, $key) use (&$overview) {
                     w = window.screen.availWidth * percent;
                     h = window.screen.availHeight * percent;
                 }
-                window.open('<?= buildUrl() ?>key=' + key, '_blank', 'width=' + w + ', height=' + h);
+                window.open(url, '_blank', 'width=' + w + ', height=' + h);
             },
             deletionConfirm = function(evt) {
                 if (!window.confirm('Are you sure you wish to proceed?')) {
@@ -180,7 +236,7 @@ array_walk_recursive($stats, function($item, $key) use (&$overview) {
                             <input type="hidden" name="key" value="<?= $key ?>" />
                             <input type="hidden" name="_method" value="DELETE" />
                             <div class="btn-group" role="group">
-                                <button type="button" class="btn btn-default btn-sm" onclick="viewRaw('<?= $key ?>')">View Raw</button>
+                                <button type="button" class="btn btn-default btn-sm" onclick="openPopup('<?= buildUrl() ?>key=<?= $key ?>')">View Raw</button>
                                 <button type="submit" class="btn btn-danger btn-sm">Delete</button>
                             </div>
                         </form>
@@ -222,14 +278,14 @@ array_walk_recursive($stats, function($item, $key) use (&$overview) {
                             <label for="value">Value</label>
                             <input type="text" class="form-control" id="value" name="value" placeholder="value" required />
                         </div>
-                        <button type="submit" class="btn btn-primary">Set</button>
+                        <button type="submit" class="btn btn-primary">Store</button>
                     </form>
                 </div>
             </div>
         </div>
     </div>
 
-    <div class="panel panel-info">
+    <div class="panel panel-primary">
         <div class="panel-heading">
             <h2 class="panel-title">Server statistics</h2>
         </div>
@@ -279,6 +335,9 @@ array_walk_recursive($stats, function($item, $key) use (&$overview) {
             </tfoot>
             <?php endif; ?>
         </table>
+        <div class="panel-footer">
+            <button type="button" class="btn btn-default btn-block btn-primary" onclick="openPopup('<?= buildUrl() ?>stats')">View Detailed Stats</button>
+        </div>
     </div>
 
     <script type="text/javascript" src="https://code.jquery.com/jquery-2.1.4.min.js"></script>
