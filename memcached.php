@@ -103,6 +103,7 @@ switch ($_method) {
             $mem->delete($_POST['key']);
         } else {
             $mem->flush();
+            $mem->getMulti($mem->getAllKeys());
         }
         break;
     case 'POST':
